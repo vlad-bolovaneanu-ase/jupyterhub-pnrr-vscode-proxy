@@ -23,7 +23,7 @@ requires-python = ">=3.8"
 license = {text = "BSD-3-clause"}
 
 [project.urls]
-repository = "https://github.com/betatim/vscode-binder"
+repository = "https://github.com/vlad-bolovaneanu-ase/jupyterhub-pnrr-vscode-proxy"
 
 [project.entry-points.jupyter_serverproxy_servers]
 vscode = "jupyter_vscode_proxy:setup_vscode"

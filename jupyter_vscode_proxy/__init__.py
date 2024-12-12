@@ -10,6 +10,9 @@ def get_inner_vscode_cmd() -> List[str]:
         "none",
         "--disable-telemetry",
         "--disable-update-check",
+        "--disable-workspace-trust",
+        "--disable-getting-started-override",
+        "--disable-proxy",
     ]
 
 def _get_cmd_factory() -> Callable:
@@ -26,9 +29,14 @@ def _get_cmd_factory() -> Callable:
         # Customize where extensions are installed 
         extensions_dir = os.getenv("CODE_EXTENSIONSDIR", None)
 
+        os.makedirs(extensions_dir, exist_ok=True)
+
         # Customize path to self-signed cert and key
         cert = os.getenv("CODE_CERT", None)
         cert_key = os.getenv("CODE_CERT_KEY", None)
+
+        # Customize verbosity
+        verbose = os.getenv("CODE_VERBOSE", None)
 
         cmd = get_inner_vscode_cmd()
 
@@ -39,6 +47,9 @@ def _get_cmd_factory() -> Callable:
 
         if cert and cert_key:
             cmd += ["--cert", cert, "--cert-key", cert_key]
+
+        if verbose:
+            cmd += ["--verbose"]
 
         cmd.append(working_dir)
         return cmd
