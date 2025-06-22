@@ -95,7 +95,7 @@ def setup_code_server():
 
     if extensions_dir:
         os.makedirs(extensions_dir, exist_ok=True)    
-        cmd += ["--extensions-dir", extensions_dir]
+        additional_arguments += ["--extensions-dir", extensions_dir]
 
 
     full_command = [which_code_server()] + command_arguments + additional_arguments + ['--'] + [working_directory]
