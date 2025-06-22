@@ -1,71 +1,107 @@
+from shutil import which
 import os
-import shutil
-from typing import Any, Callable, Dict, List
+from subprocess import run
+from tempfile import mkstemp
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def get_inner_vscode_cmd() -> List[str]:
-    return [
-        "code-server",
-        "--auth",
-        "none",
-        "--disable-telemetry",
-        "--disable-update-check",
-        "--disable-workspace-trust",
-        "--disable-getting-started-override",
-        "--disable-proxy",
+def which_code_server():
+    command = which('code-server')
+    if not command:
+        raise FileNotFoundError('Could not find executable code-server!')
+    return command
+
+
+def pre_start_hook(code_server_module):
+
+    LMOD_CMD = os.environ.get('LMOD_CMD', None)
+    MODULEPATH = os.environ.get('MODULEPATH', None)
+    if not LMOD_CMD and not MODULEPATH:
+        raise EnvironmentError('Cannot initializing code-server for the jupyter-code-server proxy! Environment variable LMOD_CMD/MODULEPATH not set.')
+
+    command_to_load = (LMOD_CMD, 'python', '--terse', 'load', str(code_server_module))
+
+    subp = run(command_to_load, capture_output=True, text=True)
+    if not subp.returncode == 0:
+        raise OSError("Error executing $LMOD_CMD command to preload code-server: " + str(subp.stderr))
+
+    # execute python environment functions from the module load call
+    exec(subp.stdout)
+
+
+def setup_code_server():
+
+    code_server_module = os.environ.get('JSP_CODE_SERVER_LMOD_MODULE', None)
+    if code_server_module:
+        pre_start_hook(code_server_module)
+
+    proxy_config_dict = {
+        "new_browser_window": True,
+        "timeout": 30,
+        "launcher_entry": {
+            # Option to disable launcher, e.g. for users that are not supposed to have editor available
+            "enabled": False if os.environ.get('JSP_CODE_SERVER_LAUNCHER_DISABLED') else True,
+            "title": "VSCode Web IDE",
+            "path_info": "vscode",
+            "icon_path": os.path.join(_HERE, 'icons/vscode.svg')
+            }
+        }
+
+    # if code-server is already running and listening to TCP port
+    code_server_port = os.environ.get('JSP_CODE_SERVER_PORT', None)
+    if code_server_port:
+        # set `command` be empty to avoid starting new code-server process and proxy requests to port specified
+        proxy_config_dict.update({
+            "command": [],
+            "port": int(code_server_port)
+            })
+        return proxy_config_dict
+
+    # if code-server is already running and listening to UNIX socket
+    code_server_socket = os.environ.get('JSP_CODE_SERVER_SOCKET', None)
+    if code_server_socket:
+        # set `command` be empty to avoid starting new code-server process and proxy requests to socket specified
+        proxy_config_dict.update({
+            "command": [],
+            "unix_socket": code_server_socket
+            })
+        return proxy_config_dict
+
+    working_directory = os.environ.get('CODE_WORKING_DIRECTORY', None)
+    if not working_directory:
+        working_directory = os.environ.get('JUPYTERHUB_ROOT_DIR', os.environ.get('JUPYTER_SERVER_ROOT', os.environ.get('HOME')))
+
+    additional_arguments = []
+
+    socket_file, socket_file_name = mkstemp()
+
+    command_arguments = [
+        '--socket={unix_socket}',
+        '--disable-update-check',
+        '--disable-file-uploads',
+        '--disable-file-downloads',
+        '--ignore-last-opened'  # needed to set a specific working directory
     ]
 
-def _get_cmd_factory() -> Callable:
+    disable_password = os.environ.get('CODE_DISABLE_PASSWORD', 'false').lower() in ('1', 'true', 'yes')
 
-    def _get_cmd(port: int) -> List[str]:
-        if not shutil.which("code-server"):
-            raise FileNotFoundError(f"Can not find code-server in PATH")
+    if disable_password:
+        command_arguments.append('--auth=none')
+    else:
+        command_arguments.append('--auth=password')
 
-        # Start vscode in CODE_WORKINGDIR env variable if set
-        # If not, start in 'current directory', which is $REPO_DIR in mybinder
-        # but /home/jovyan (or equivalent) in JupyterHubs
-        working_dir = os.getenv("CODE_WORKINGDIR", ".")
+    extensions_dir = os.getenv('CODE_EXTENSIONSDIR', None)
 
-        # Customize where extensions are installed 
-        extensions_dir = os.getenv("CODE_EXTENSIONSDIR", None)
-
-        os.makedirs(extensions_dir, exist_ok=True)
-
-        # Customize path to self-signed cert and key
-        cert = os.getenv("CODE_CERT", None)
-        cert_key = os.getenv("CODE_CERT_KEY", None)
-
-        # Customize verbosity
-        verbose = os.getenv("CODE_VERBOSE", None)
-
-        cmd = get_inner_vscode_cmd()
-
-        cmd.append("--port=" + str(port))
-
-        if extensions_dir:
-            cmd += ["--extensions-dir", extensions_dir]
-
-        if cert and cert_key:
-            cmd += ["--cert", cert, "--cert-key", cert_key]
-
-        if verbose:
-            cmd += ["--verbose"]
-
-        cmd.append(working_dir)
-        return cmd
-
-    return _get_cmd
+    if extensions_dir:
+        os.makedirs(extensions_dir, exist_ok=True)    
+        cmd += ["--extensions-dir", extensions_dir]
 
 
-def setup_vscode() -> Dict[str, Any]:
-    return {
-        "command": _get_cmd_factory(),
-        "timeout": 300,
-        "new_browser_tab": True,
-        "launcher_entry": {
-            "title": "VS Code",
-            "icon_path": os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "icons", "vscode.svg"
-            ),
-        },
-    }
+    full_command = [which_code_server()] + command_arguments + additional_arguments + ['--'] + [working_directory]
+    proxy_config_dict.update({
+        "command": full_command,
+        "unix_socket": socket_file_name
+    })
+
+    return proxy_config_dict
