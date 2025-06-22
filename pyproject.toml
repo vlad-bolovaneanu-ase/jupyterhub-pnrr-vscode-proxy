@@ -26,7 +26,10 @@ license = {text = "BSD-3-clause"}
 repository = "https://github.com/vlad-bolovaneanu-ase/jupyterhub-pnrr-vscode-proxy"
 
 [project.entry-points.jupyter_serverproxy_servers]
-vscode = "jupyter_vscode_proxy:setup_vscode"
+vscode = "jupyter_vscode_proxy:setup_code_server"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 exclude = '''
